@@ -43,6 +43,15 @@
 #define MAXLINES 1024
 char *lines[MAXLINES];
 unsigned int nlines = 0;
+const char *progname = 0;
+
+void
+usage(void)
+{
+    fprintf(stderr, "usage: %s [-e] -- cmd ...\n", progname);
+    fprintf(stderr, "\t-e        capture stderr\n");
+    exit(1);
+}
 
 int
 main(int argc, char *argv[])
@@ -53,19 +62,22 @@ main(int argc, char *argv[])
     memset(lines, 0, sizeof(lines));
     int stdoutpipe[2];
 
+    progname = argv[0];
     while ((opt = getopt(argc, argv, "e")) != -1) {
 	switch (opt) {
 	case 'e':
 	    opt_stderr = 1;
 	    break;
 	default:
-	    fprintf(stderr, "usage: %s [-e] cmd ...", argv[0]);
-	    exit(1);
+	    usage();
 	    break;
 	}
     }
     argc -= optind;
     argv += optind;
+
+    if (0 == argc || 0 == argv[0])
+	usage();
 
     if (pipe(stdoutpipe) < 0)
 	err(1, "pipe");
@@ -80,7 +92,7 @@ main(int argc, char *argv[])
 	    dup2(stdoutpipe[1], 2);
 	close(stdoutpipe[1]);
 	execvp(argv[0], argv);
-	err(1, "exec");
+	err(1, "%s", argv[0]);
     } else {
 	/* parent */
 	char buf[512];
@@ -91,6 +103,10 @@ main(int argc, char *argv[])
 	    err(1, "fdopen");
 	close(stdoutpipe[1]);
 	while (fgets(buf, sizeof(buf), fp)) {
+	    if (MAXLINES == nlines) {
+		free(lines[0]);
+		memmove(&lines[0], &lines[1], --nlines * sizeof(lines[0]));
+	    }
 	    buf[sizeof(buf) - 1] = 0;
 	    lines[nlines++] = strdup(buf);
 	}
