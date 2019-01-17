@@ -51,6 +51,7 @@ usage(void)
 {
     fprintf(stderr, "usage: %s [-e] -- cmd ...\n", progname);
     fprintf(stderr, "\t-e        capture stderr\n");
+    fprintf(stderr, "\t-o file   save output to file\n");
     exit(1);
 }
 
