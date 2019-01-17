@@ -39,6 +39,7 @@
 #include <err.h>
 #include <sys/types.h>
 #include <signal.h>
+#include <err.h>
 
 #define MAXLINES 1024
 char *lines[MAXLINES];
@@ -59,14 +60,20 @@ main(int argc, char *argv[])
     pid_t kid;
     int opt;
     int opt_stderr = 0;
+    FILE *opt_output = 0;
     memset(lines, 0, sizeof(lines));
     int stdoutpipe[2];
 
     progname = argv[0];
-    while ((opt = getopt(argc, argv, "e")) != -1) {
+    while ((opt = getopt(argc, argv, "eo:")) != -1) {
 	switch (opt) {
 	case 'e':
 	    opt_stderr = 1;
+	    break;
+	case 'o':
+	    opt_output = fopen(optarg, "w");
+	    if (opt_output == 0)
+		err(1, "%s", optarg);
 	    break;
 	default:
 	    usage();
@@ -103,6 +110,8 @@ main(int argc, char *argv[])
 	    err(1, "fdopen");
 	close(stdoutpipe[1]);
 	while (fgets(buf, sizeof(buf), fp)) {
+	    if (opt_output)
+		fputs(buf, opt_output);
 	    if (MAXLINES == nlines) {
 		free(lines[0]);
 		memmove(&lines[0], &lines[1], --nlines * sizeof(lines[0]));
@@ -110,6 +119,8 @@ main(int argc, char *argv[])
 	    buf[sizeof(buf) - 1] = 0;
 	    lines[nlines++] = strdup(buf);
 	}
+        if (opt_output)
+	    fclose(opt_output);
 	waitpid(kid, &status, 0);
 	if (WIFSIGNALED(status)) {
 	    for (i = 0; i < nlines; i++)
