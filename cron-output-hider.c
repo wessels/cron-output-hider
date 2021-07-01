@@ -40,6 +40,7 @@
 #include <sys/types.h>
 #include <signal.h>
 #include <err.h>
+#include <sys/file.h>
 
 #define MAXLINES 1024
 char *lines[MAXLINES];
@@ -52,6 +53,7 @@ usage(void)
     fprintf(stderr, "usage: %s [-e] -- cmd ...\n", progname);
     fprintf(stderr, "\t-e        capture stderr\n");
     fprintf(stderr, "\t-o file   save output to file\n");
+    fprintf(stderr, "\t-l        lock output file\n");
     exit(1);
 }
 
@@ -66,7 +68,7 @@ main(int argc, char *argv[])
     int stdoutpipe[2];
 
     progname = argv[0];
-    while ((opt = getopt(argc, argv, "eo:")) != -1) {
+    while ((opt = getopt(argc, argv, "eo:l")) != -1) {
 	switch (opt) {
 	case 'e':
 	    opt_stderr = 1;
@@ -75,6 +77,12 @@ main(int argc, char *argv[])
 	    opt_output = fopen(optarg, "w");
 	    if (opt_output == 0)
 		err(1, "%s", optarg);
+	    break;
+	case 'l':
+	    if (opt_output == 0)
+		errx(1, "must use -o file before -l");
+	    if (0 != flock(fileno(opt_output), LOCK_EX|LOCK_NB))
+		errx(1, "Could not lock output file");
 	    break;
 	default:
 	    usage();
