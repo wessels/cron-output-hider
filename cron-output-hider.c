@@ -41,6 +41,8 @@
 #include <signal.h>
 #include <err.h>
 #include <sys/file.h>
+#include <time.h>
+#include <sys/time.h>
 
 #define MAXLINES 1024
 char *lines[MAXLINES];
@@ -54,7 +56,41 @@ usage(void)
     fprintf(stderr, "\t-e        capture stderr\n");
     fprintf(stderr, "\t-o file   save output to file\n");
     fprintf(stderr, "\t-l        lock output file\n");
+    fprintf(stderr, "\t-t file   record command run time\n");
     exit(1);
+}
+
+void
+log_time(const char *fn, const struct timeval *t1, const struct timeval *t2, int status, char *argv[])
+{
+    FILE *fp = 0;
+    char start_strftime[128];
+    unsigned int hours = 0;
+    unsigned int mins = 0;
+    unsigned int secs = 0;
+    if (fn == 0)
+	return;
+    fp = fopen(fn, "a");
+    if (fp == 0) {
+	warnx("%s", fn);
+	return;
+    }
+    if (0 != flock(fileno(fp), LOCK_EX)) {
+	warnx("Could not lock timelog file");
+	return;
+    }
+    strftime(start_strftime, sizeof(start_strftime), "%Y-%m-%dT%H:%M:%S", gmtime(&t1->tv_sec));
+    hours = (t2->tv_sec - t1->tv_sec) / 3600;
+    mins = (t2->tv_sec - t1->tv_sec - 3600 * hours) / 60;
+    secs = (t2->tv_sec - t1->tv_sec - 3600 * hours - 60 * mins);
+    fseek(fp, 0L, SEEK_END);
+    fprintf(fp, "%s %02d:%02d:%02d", start_strftime, hours, mins, secs);
+    fprintf(fp, " %d %d", WEXITSTATUS(status), WIFSIGNALED(status) ? WTERMSIG(status) : 0);
+    while (*argv)
+	fprintf(fp, " %s", *(argv++));
+    fprintf(fp, "\n");
+    fclose(fp);
+    flock(fileno(fp), LOCK_UN);
 }
 
 int
@@ -66,9 +102,10 @@ main(int argc, char *argv[])
     FILE *opt_output = 0;
     memset(lines, 0, sizeof(lines));
     int stdoutpipe[2];
+    char *opt_timelog = 0;
 
     progname = argv[0];
-    while ((opt = getopt(argc, argv, "eo:l")) != -1) {
+    while ((opt = getopt(argc, argv, "eo:lt:")) != -1) {
 	switch (opt) {
 	case 'e':
 	    opt_stderr = 1;
@@ -83,6 +120,11 @@ main(int argc, char *argv[])
 		errx(1, "must use -o file before -l");
 	    if (0 != flock(fileno(opt_output), LOCK_EX|LOCK_NB))
 		errx(1, "Could not lock output file");
+	    break;
+	case 't':
+	    opt_timelog = strdup(optarg);
+	    if (opt_timelog == 0)
+		err(1, "strdup");
 	    break;
 	default:
 	    usage();
@@ -115,9 +157,12 @@ main(int argc, char *argv[])
 	FILE *fp = fdopen(stdoutpipe[0], "r");
 	int status;
 	int i;
+	struct timeval start;
+	struct timeval stop;
 	if (0 == fp)
 	    err(1, "fdopen");
 	close(stdoutpipe[1]);
+	gettimeofday(&start, 0);
 	while (fgets(buf, sizeof(buf), fp)) {
 	    if (opt_output)
 		fputs(buf, opt_output);
@@ -128,9 +173,11 @@ main(int argc, char *argv[])
 	    buf[sizeof(buf) - 1] = 0;
 	    lines[nlines++] = strdup(buf);
 	}
+	gettimeofday(&stop, 0);
         if (opt_output)
 	    fclose(opt_output);
 	waitpid(kid, &status, 0);
+	log_time(opt_timelog, &start, &stop, status, argv);
 	if (WIFSIGNALED(status)) {
 	    for (i = 0; i < nlines; i++)
 		write(1, lines[i], strlen(lines[i]));
